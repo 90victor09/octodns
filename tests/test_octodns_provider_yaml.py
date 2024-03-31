@@ -251,6 +251,80 @@ xn--dj-kia8a:
         source.populate(zone)
         self.assertEqual(2, len(zone.records))
 
+    def test_dns_order(self):
+        # Verify valid modes
+        for enforce_mode in (True, False, 'dns'):
+            YamlProvider(
+                'test',
+                join(dirname(__file__), 'config'),
+                supports_root_ns=False,
+                enforce_order=enforce_mode,
+            )
+
+        # Invalid mode
+        with self.assertRaises(ProviderException):
+            YamlProvider(
+                'test',
+                join(dirname(__file__), 'config'),
+                supports_root_ns=False,
+                enforce_order='false',
+            )
+
+        source = YamlProvider(
+            'test', join(dirname(__file__), 'config'), supports_root_ns=False
+        )
+
+        zone = Zone('dns-ordered.', [])
+
+        with self.assertRaises(ConstructorError):
+            source.populate(zone)
+
+        source = YamlProvider(
+            'test',
+            join(dirname(__file__), 'config'),
+            supports_root_ns=False,
+            enforce_order='dns',
+        )
+        # still raises exception
+        zone = Zone('unordered.', [])
+        with self.assertRaises(ConstructorError):
+            source.populate(zone)
+
+        # no exception
+        zone = Zone('dns-ordered.', [])
+        source.populate(zone)
+        self.assertEqual(3, len(zone.records))
+
+        # Test dns order dump
+        with TemporaryDirectory() as td:
+            provider = YamlProvider('test', td.dirname, enforce_order='dns')
+            plan = provider.plan(zone)
+            provider.apply(plan)
+
+            filename = f'{zone.decoded_name}yaml'
+            with open(join(td.dirname, filename), 'r') as fh:
+                content = fh.read()
+
+                # Verify that everything in order
+                # If something missing then index() will raise exception
+                abc_pos = content.index('abc:')
+                acme_pos = content.index('_acme-challenge.abc:', abc_pos)
+                content.index('xyz:', acme_pos)
+
+        # Test alphabetical order dump
+        with TemporaryDirectory() as td:
+            provider = YamlProvider('test', td.dirname, enforce_order=True)
+            plan = provider.plan(zone)
+            provider.apply(plan)
+
+            filename = f'{zone.decoded_name}yaml'
+            with open(join(td.dirname, filename), 'r') as fh:
+                content = fh.read()
+
+                acme_pos = content.index('_acme-challenge.abc:')
+                abc_pos = content.index('abc:', acme_pos)
+                content.index('xyz:', abc_pos)
+
     def test_subzone_handling(self):
         source = YamlProvider(
             'test', join(dirname(__file__), 'config'), supports_root_ns=False
@@ -712,7 +786,7 @@ class TestSplitYamlProvider(TestCase):
             'test',
             42,
             default_ttl=43,
-            enforce_order=44,
+            enforce_order=False,
             populate_should_replace=45,
             supports_root_ns=46,
         )
@@ -731,7 +805,7 @@ class TestSplitYamlProvider(TestCase):
             42,
             extension=42.5,
             default_ttl=43,
-            enforce_order=44,
+            enforce_order='dns',
             populate_should_replace=45,
             supports_root_ns=46,
         )

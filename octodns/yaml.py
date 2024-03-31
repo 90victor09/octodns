@@ -44,11 +44,14 @@ ContextLoader.add_constructor(
 # Found http://stackoverflow.com/a/21912744 which guided me on how to hook in
 # here
 class SortEnforcingLoader(ContextLoader):
+    def get_sorting_key(self, d):
+        return _natsort_key(d)
+
     def _construct(self, node):
         ret, pairs, context = self._pairs(node)
 
         keys = [d[0] for d in pairs]
-        keys_sorted = sorted(keys, key=_natsort_key)
+        keys_sorted = sorted(keys, key=self.get_sorting_key)
         for key in keys:
             expected = keys_sorted.pop(0)
             if key != expected:
@@ -62,13 +65,26 @@ class SortEnforcingLoader(ContextLoader):
         return ret
 
 
-SortEnforcingLoader.add_constructor(
-    SortEnforcingLoader.DEFAULT_MAPPING_TAG, SortEnforcingLoader._construct
-)
+class DnsSortEnforcingLoader(SortEnforcingLoader):
+    '''
+    Enforces DNS hierarchy aware sorting order
+    '''
+
+    def get_sorting_key(self, d):
+        return _natsort_key(reversed(d.split('.')))
+
+
+for cls in (SortEnforcingLoader, DnsSortEnforcingLoader):
+    cls.add_constructor(cls.DEFAULT_MAPPING_TAG, cls._construct)
 
 
 def safe_load(stream, enforce_order=True):
-    return load(stream, SortEnforcingLoader if enforce_order else ContextLoader)
+    loader = ContextLoader
+    if enforce_order == 'dns':
+        loader = DnsSortEnforcingLoader
+    elif enforce_order:
+        loader = SortEnforcingLoader
+    return load(stream, loader)
 
 
 class SortingDumper(SafeDumper):
@@ -80,19 +96,34 @@ class SortingDumper(SafeDumper):
     more info
     '''
 
+    def get_sorting_key(self, d):
+        return _natsort_key(d)
+
     def _representer(self, data):
-        data = sorted(data.items(), key=lambda d: _natsort_key(d[0]))
+        data = sorted(data.items(), key=lambda d: self.get_sorting_key(d[0]))
         return self.represent_mapping(self.DEFAULT_MAPPING_TAG, data)
 
 
-SortingDumper.add_representer(dict, SortingDumper._representer)
-# This should handle all the record value types which are ultimately either str
-# or dict at some point in their inheritance hierarchy
-SortingDumper.add_multi_representer(str, SafeRepresenter.represent_str)
-SortingDumper.add_multi_representer(dict, SortingDumper._representer)
+class DnsSortingDumper(SortingDumper):
+    '''
+    Same as SortingDumper, but sorts keys in DNS hierarchy aware manner.
+
+    For example: a.test.com, sub2.a.test.com, sub10.a.test.com, b.test.com
+    '''
+
+    def get_sorting_key(self, d):
+        return _natsort_key(reversed(d.split('.')))
 
 
-def safe_dump(data, fh, **options):
+for cls in (SortingDumper, DnsSortingDumper):
+    cls.add_representer(dict, cls._representer)
+    # This should handle all the record value types which are ultimately either str
+    # or dict at some point in their inheritance hierarchy
+    cls.add_multi_representer(str, SafeRepresenter.represent_str)
+    cls.add_multi_representer(dict, cls._representer)
+
+
+def safe_dump(data, fh, enforce_order=True, **options):
     kwargs = {
         'canonical': False,
         'indent': 2,
@@ -101,4 +132,9 @@ def safe_dump(data, fh, **options):
         'explicit_start': True,
     }
     kwargs.update(options)
-    dump(data, fh, SortingDumper, **kwargs)
+    dump(
+        data,
+        fh,
+        SortingDumper if enforce_order != 'dns' else DnsSortingDumper,
+        **kwargs,
+    )

@@ -31,7 +31,8 @@ class YamlProvider(BaseProvider):
         # (optional, default 3600)
         default_ttl: 3600
 
-        # Whether or not to enforce sorting order when loading yaml
+        # Whether or not to enforce alphabetical sorting order when loading yaml.
+        # You can also specify 'dns' for DNS hierarchy aware ordering.
         # (optional, default True)
         enforce_order: true
 
@@ -202,6 +203,10 @@ class YamlProvider(BaseProvider):
         self.directory = directory
         self.default_ttl = default_ttl
         self.enforce_order = enforce_order
+        if self.enforce_order not in [True, False, 'dns']:
+            raise ProviderException(
+                "Only true, false and 'dns' allowed as a value to enforce_order"
+            )
         self.populate_should_replace = populate_should_replace
         self.supports_root_ns = supports_root_ns
         self.split_extension = split_extension
@@ -420,7 +425,7 @@ class YamlProvider(BaseProvider):
 
                 with open(filename, 'w') as fh:
                     record_data = {record: config}
-                    safe_dump(record_data, fh)
+                    safe_dump(record_data, fh, enforce_order=self.enforce_order)
 
             if catchall:
                 # Scrub the trailing . to make filenames more sane.
@@ -429,14 +434,19 @@ class YamlProvider(BaseProvider):
                     '_apply:   writing catchall filename=%s', filename
                 )
                 with open(filename, 'w') as fh:
-                    safe_dump(catchall, fh)
+                    safe_dump(catchall, fh, enforce_order=self.enforce_order)
 
         else:
             # single large file
             filename = join(self.directory, f'{desired.decoded_name}yaml')
             self.log.debug('_apply:   writing filename=%s', filename)
             with open(filename, 'w') as fh:
-                safe_dump(dict(data), fh, allow_unicode=True)
+                safe_dump(
+                    dict(data),
+                    fh,
+                    allow_unicode=True,
+                    enforce_order=self.enforce_order,
+                )
 
 
 class SplitYamlProvider(YamlProvider):

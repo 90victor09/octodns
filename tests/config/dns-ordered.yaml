@@ -1,0 +1,10 @@
+---
+abc:
+  type: A
+  value: 9.9.9.9
+_acme-challenge.abc:
+  type: TXT
+  value: acme-test
+xyz:
+  type: A
+  value: 9.9.9.9
